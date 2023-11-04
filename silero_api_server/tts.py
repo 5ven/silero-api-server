@@ -23,7 +23,6 @@ class SileroTtsService:
         # Silero works fine on CPU
         self.device = torch.device('cpu')
         torch.set_num_threads(4)
-        torchaudio.set_audio_backend("soundfile")
 
         # Make sure we have the sample path
         if not self.sample_path.exists():
