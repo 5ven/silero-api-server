@@ -8,6 +8,16 @@ This is primarily to serve the TTS extension in [SillyTavern](https://github.com
 ## Installation
 `pip install silero-api-server`
 
+or, when using venv
+
+```
+python -m venv venv
+source venv/bin/activate 
+pip install -r requirements.txt
+```
+
+to leave the virtual environment, use the `deactivate` command.
+
 ## Starting Server
 `python -m silero_api_server` will run on default ip and port (0.0.0.0:8001)
 
@@ -20,6 +30,7 @@ options:
   -h, --help            show this help message and exit
   -o HOST, --host HOST
   -p PORT, --port PORT
+  -r, --reload          Enable automatic reloading on file change
 ```
 
 On first run of server, two operations occur automatically. These may take a minute or two.
