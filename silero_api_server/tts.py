@@ -9,7 +9,6 @@ from loguru import logger
 from pydub import AudioSegment
 from pathlib import Path
 import json
-import uuid
 
 class SessionManager:
     def __init__(self, base_sessions_path="sessions"):
