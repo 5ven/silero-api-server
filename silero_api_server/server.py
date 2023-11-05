@@ -65,9 +65,13 @@ def speakers(request: Request):
 @app.post("/tts/generate")
 async def generate(voice: Voice):
     session_id = voice.session
-    if not session_id:
-        session_id = tts_service.session_manager.create_session()
     try:
+        if session_id is None:
+            session_id = tts_service.session_manager.create_session()
+        else:
+            existing_session_id = tts_service.session_manager.get_session_path(session_id)
+            if existing_session_id:
+                tts_service.session_manager.init_session_path(session_id)  
         audio = tts_service.generate(voice.speaker, voice.text, session_id)
         return FileResponse(audio)
     except Exception as e:

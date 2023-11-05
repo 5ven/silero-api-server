@@ -19,20 +19,23 @@ class SessionManager:
     def init_session_path(self, session_id):
         session_path = self.sessions_path / session_id
         if not session_path.exists():
-            session_path.mkdir(parents=True,exist_ok=True)
+            session_path.mkdir(parents=True)
         return session_path
 
     def create_session(self, session_id=None):
         new_session_id = session_id
         if session_id is None:
             date_str = time.strftime("%Y%m%d")
-            new_session_id = f"session_{date_str}"
+            new_session_id = f"{date_str}"
+            session_path = self.sessions_path / new_session_id
+            if not session_path.exists():
+                session_path.mkdir(parents=True)
         return new_session_id
 
     def get_session_path(self, session_id):
         session_path = self.sessions_path / session_id
         if not session_path.exists():
-            raise Exception(f"Failed to get session path for {session_id}")
+            raise Exception("Session not initialized. Call POST /tts/session with {'path':'desired\session\path'}")
         else:
             return session_path
 
@@ -87,8 +90,6 @@ class SileroTtsService:
     def generate(self, speaker, text, session):
         # Create a new session or use the existing one
         session_path = self.session_manager.get_session_path(session)
-        logger.info(f"Session: {session}")
-        logger.info(f"Session path: {session_path}")
 
         if len(text) > self.max_char_length:
             # Handle long text input
@@ -100,15 +101,14 @@ class SileroTtsService:
                 combined_wav += AudioSegment.silent(500)  # Insert 500ms pause
                 combined_wav += AudioSegment.from_file(str(audio_path))
 
-            final_audio_name = f"{speaker}_combined_{uuid.uuid4()}.wav"
+            final_audio_name = f"tts_{speaker}_{session}_{int(time.time())}_combined.wav"
             audio_path = session_path / final_audio_name
             combined_wav.export(audio_path, format="wav")
         else:
             audio_path = Path(self.model.save_wav(text=text,speaker=speaker,sample_rate=self.sample_rate))
+            dst = session_path.joinpath(f"tts_{speaker}_{session}_{int(time.time())}.wav")
+            shutil.copy(audio_path, dst)
 
-        if session:
-            self.save_session_audio(audio_path, session, speaker)
-        
         return audio_path
 
     def split_text(self, text:str) -> list[str]:
@@ -132,15 +132,6 @@ class SileroTtsService:
     def combine_audio(self, audio_segments):
         combined_audio = AudioSegment.from_mono_audiosegments(audio_segments)
         return combined_audio
-
-    def save_session_audio(self, audio_path:Path, session:Path, speaker):
-        if not self.session_manager.sessions_path:
-            raise Exception("Session not initialized. Call /tts/init_session with {'path':'desired\session\path'}")
-        session_path = self.session_manager.sessions_path.joinpath(session)
-        if not session_path.exists():
-            session_path.mkdir()
-        dst = session_path.joinpath(f"tts_{session}_{int(time.time())}_{speaker}_.wav")
-        shutil.copy(audio_path, dst)
 
     def get_speakers(self):
         "List different speakers in model"
