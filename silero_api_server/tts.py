@@ -4,12 +4,37 @@ import shutil
 import requests
 import torch
 import torch.package
-import torchaudio
 from hashlib import md5
 from loguru import logger
 from pydub import AudioSegment
 from pathlib import Path
 import json
+import uuid
+
+class SessionManager:
+    def __init__(self, base_sessions_path="sessions"):
+        self.sessions_path = Path(base_sessions_path)
+        self.sessions_path.mkdir(exist_ok=True)
+
+    def init_session_path(self, session_id):
+        session_path = self.sessions_path / session_id
+        if not session_path.exists():
+            session_path.mkdir(parents=True,exist_ok=True)
+        return session_path
+
+    def create_session(self, session_id=None):
+        new_session_id = session_id
+        if session_id is None:
+            date_str = time.strftime("%Y%m%d")
+            new_session_id = f"session_{date_str}"
+        return new_session_id
+
+    def get_session_path(self, session_id):
+        session_path = self.sessions_path / session_id
+        if not session_path.exists():
+            raise Exception(f"Failed to get session path for {session_id}")
+        else:
+            return session_path
 
 class SileroTtsService:
     """
@@ -18,7 +43,6 @@ class SileroTtsService:
     def __init__(self, sample_path, lang="v3_en.pt") -> None:
         self.sample_text = "The fallowed fallen swindle auspacious goats in portable power stations."
         self.sample_path = Path(sample_path)
-        self.sessions_path = None
 
         # Silero works fine on CPU
         self.device = torch.device('cpu')
@@ -40,10 +64,8 @@ class SileroTtsService:
         # Load model
         self.load_model(lang)
 
-    def init_sessions_path(self, sessions_path="sessions"):
-        self.sessions_path = Path(sessions_path)
-        if not self.sessions_path.exists():
-            self.sessions_path.mkdir()
+        ## Manage sessions
+        self.session_manager = SessionManager()
     
     def load_model(self, lang_model="v3_en.pt"):
         # Download the model. Default to en.
@@ -62,7 +84,12 @@ class SileroTtsService:
         self.model = torch.package.PackageImporter(self.model_file).load_pickle("tts_models", "model")
         self.model.to(self.device)
 
-    def generate(self, speaker, text, session=""):
+    def generate(self, speaker, text, session):
+        # Create a new session or use the existing one
+        session_path = self.session_manager.get_session_path(session)
+        logger.info(f"Session: {session}")
+        logger.info(f"Session path: {session_path}")
+
         if len(text) > self.max_char_length:
             # Handle long text input
             text_chunks = self.split_text(text)
@@ -70,15 +97,18 @@ class SileroTtsService:
 
             for chunk in text_chunks:
                 audio_path = Path(self.model.save_wav(text=chunk,speaker=speaker,sample_rate=self.sample_rate))
-                combined_wav += AudioSegment.silent(500) # Insert 500ms pause
-                combined_wav += AudioSegment.from_file(audio_path)
+                combined_wav += AudioSegment.silent(500)  # Insert 500ms pause
+                combined_wav += AudioSegment.from_file(str(audio_path))
 
-            combined_wav.export("test.wav", format="wav")
-            audio_path = Path("test.wav")
+            final_audio_name = f"{speaker}_combined_{uuid.uuid4()}.wav"
+            audio_path = session_path / final_audio_name
+            combined_wav.export(audio_path, format="wav")
         else:
             audio_path = Path(self.model.save_wav(text=text,speaker=speaker,sample_rate=self.sample_rate))
+
         if session:
             self.save_session_audio(audio_path, session, speaker)
+        
         return audio_path
 
     def split_text(self, text:str) -> list[str]:
@@ -99,15 +129,14 @@ class SileroTtsService:
 
         return chunk_list
 
-
     def combine_audio(self, audio_segments):
         combined_audio = AudioSegment.from_mono_audiosegments(audio_segments)
         return combined_audio
 
     def save_session_audio(self, audio_path:Path, session:Path, speaker):
-        if not self.sessions_path:
+        if not self.session_manager.sessions_path:
             raise Exception("Session not initialized. Call /tts/init_session with {'path':'desired\session\path'}")
-        session_path = self.sessions_path.joinpath(session)
+        session_path = self.session_manager.sessions_path.joinpath(session)
         if not session_path.exists():
             session_path.mkdir()
         dst = session_path.joinpath(f"tts_{session}_{int(time.time())}_{speaker}_.wav")
@@ -157,7 +186,7 @@ class SileroTtsService:
         for lang in langs:
             response = requests.get(f"{lang_base_url}/{lang}")
             if not response.ok:
-                raise f"Failed to get languages: {response.status_code}"
+                raise Exception(f"Failed to get languages: {response.status_code}")
             lang_files = [f.split('"')[0] for f in response.text.split('<a href="')][1:]
 
             # If a valid v3 file, add to list

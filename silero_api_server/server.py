@@ -1,10 +1,10 @@
 
-import pathlib
 import os
-from fastapi import FastAPI, Response, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
+import pathlib
+from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 from silero_api_server.tts import SileroTtsService
@@ -40,7 +40,7 @@ app.add_middleware(
 class Voice(BaseModel):
     speaker: str
     text: str
-    session: Optional[str]
+    session: Optional[str] = None
 
 class SampleText(BaseModel):
     text: Optional[str]
@@ -50,6 +50,7 @@ class SessionPayload(BaseModel):
 
 class Language(BaseModel):
     id: str
+
 @app.get("/tts/speakers")
 def speakers(request: Request):
     voices = [
@@ -62,19 +63,17 @@ def speakers(request: Request):
     return voices
 
 @app.post("/tts/generate")
-def generate(voice: Voice):
-    # Clean elipses
-    voice.text = voice.text.replace("*","")
+async def generate(voice: Voice):
+    session_id = voice.session
+    if not session_id:
+        session_id = tts_service.session_manager.create_session()
     try:
-        if voice.session:
-            audio = tts_service.generate(voice.speaker, voice.text, voice.session)
-        else:
-            audio = tts_service.generate(voice.speaker, voice.text)
+        audio = tts_service.generate(voice.speaker, voice.text, session_id)
         return FileResponse(audio)
     except Exception as e:
         logger.error(e)
-        return HTTPException(500,f"{voice.speaker} generation failed: {e}")
-    
+        raise HTTPException(status_code=500, detail=f"{voice.speaker} generation failed: {e}")
+            
 @app.get("/tts/sample")
 def play_sample(speaker: str):
     return FileResponse(f"{SAMPLE_PATH}/{speaker}.wav",status_code=200)
@@ -87,7 +86,7 @@ def generate_samples(sample_text: Optional[str] = ""):
 
 @app.post("/tts/session")
 def init_session(sessionPayload: SessionPayload):
-    tts_service.init_sessions_path(sessionPayload.path)
+    tts_service.session_manager.init_session_path(sessionPayload.path)
     return Response(f"Session path created at {sessionPayload.path}")
 
 @app.get("/tts/language")
